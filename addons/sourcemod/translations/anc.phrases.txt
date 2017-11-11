@@ -1,0 +1,29 @@
+"Phrases"
+{
+	"Rename"
+	{
+		"#format"	"{1:c},{2:s}"
+		"en"		"Your nickname is forbidden, it is changed to{1} {2}"
+		"ru"		"Ваш ник запрещен, он изменен на{1} {2}"
+	}
+	
+	"Renameclan"
+	{
+		"#format"	"{1:c},{2:s}"
+		"en"		"You clan tag is forbidden, it is changed to{1} {2}"
+		"ru"		"Ваш клан тег запрещен, он изменен на{1} {2}"
+	}
+
+	"For_Ban"
+	{
+		"en"		"Your nickname is forbidden, change it or you will be banned"
+		"ru"		"Смените ник, иначе вы будете забанены"
+	}
+	
+	"Warning"
+	{
+		"#format"	"{1:c},{2:d},{3:c},{4:c},{5:d}"
+		"en"		"Warning{1} {2}{3}/{4}{5}"
+		"ru"		"Предупреждение{1} {2}{3}/{4}{5}"
+	}
+}
