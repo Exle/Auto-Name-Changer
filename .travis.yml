@@ -1,0 +1,55 @@
+#Use the new container-based infrastructure
+sudo: false
+
+#Install some apt packages needed for spcomp
+addons:
+    apt_packages:
+        - lib32z1
+        - lib32stdc++6
+
+language: c
+#Set the build environment
+env:
+  global:
+    - SCRIPTING=addons/sourcemod/scripting
+    - PLUGINS=addons/sourcemod/plugins
+    - TRANSLATIONS=addons/sourcemod/translations
+    - CFG=cfg/sourcemod
+    - NAME=anc
+  matrix:
+    - SMVERSION=1.9
+    - SMVERSION=1.10
+install:
+    # Sourcemod download
+    - wget --input-file=http://sourcemod.net/smdrop/$SMVERSION/sourcemod-latest-linux
+    - tar -xzf $(cat sourcemod-latest-linux)
+before_script:
+    - chmod +x $SCRIPTING/spcomp
+    - mkdir $SCRIPTING/compiled
+script: $SCRIPTING/spcomp -E -o$SCRIPTING/compiled/$NAME -v0 $SCRIPTING/$NAME.sp
+
+#Release
+before_deploy:
+    - mkdir -p $NAME/$PLUGINS $NAME/$SCRIPTING $NAME/$SCRIPTING/include $NAME/$TRANSLATIONS $NAME/$CFG/$NAME
+    - mv $SCRIPTING/$NAME.sp $NAME/$SCRIPTING
+    - mv $SCRIPTING/include/chat.inc $NAME/$SCRIPTING/include
+    - mv $SCRIPTING/compiled/* $NAME/$PLUGINS
+    - mv $TRANSLATIONS/$NAME.phrases.txt $NAME/$TRANSLATIONS
+    - mv $CFG/$NAME/* $NAME/$CFG/$NAME
+    - mv LICENSE.md $NAME
+    - mv README.md $NAME
+    - cd $NAME
+    - zip -rq $NAME addons cfg LICENSE.md README.md
+    - tar -czf $NAME.tar.gz addons cfg LICENSE.md README.md
+deploy:
+    provider: releases
+    api_key: $GITHUB_TOKEN
+    file:
+         - $NAME.zip
+         - $NAME.tar.gz
+    skip_cleanup: true
+    on:
+       tags: true
+#Notifications
+notifications:
+    email: false

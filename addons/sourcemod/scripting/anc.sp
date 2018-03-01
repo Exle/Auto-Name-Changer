@@ -46,7 +46,7 @@ public Plugin myinfo =
 	name		= "Auto Name Changer",
 	author		= "Exle",
 	description = "Replaces forbidden nicknames and clan tag",
-	version		= "1.4.3",
+	version		= "1.0.4.4",
 	url			= "http://steamcommunity.com/id/ex1e/"
 };
 
