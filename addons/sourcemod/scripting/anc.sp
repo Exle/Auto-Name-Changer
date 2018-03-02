@@ -1,5 +1,6 @@
 #include <sdktools_functions>
 #include <chat>
+#include <anc_version>
 
 #undef REQUIRE_EXTENSIONS
 #include <cstrike>
@@ -46,7 +47,7 @@ public Plugin myinfo =
 	name		= "Auto Name Changer",
 	author		= "Exle",
 	description = "Replaces forbidden nicknames and clan tag",
-	version		= "1.0.4.4",
+	version		= VERSION,
 	url			= "http://steamcommunity.com/id/ex1e/"
 };
 
