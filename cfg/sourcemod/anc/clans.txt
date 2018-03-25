@@ -1,0 +1,47 @@
+//  clan --mode Flags --new Clan
+//  --mode:
+//		default: bcf
+//      a - complete match
+//      b - partial match
+//      c - complete replacement
+//      d - partial replacement
+//      e - case sensitive
+//      f - case insensitive
+//
+//  --new:
+//      default: random clan from file newclans.txt
+//
+//  Example:
+//		1:
+//			forbidden: my clantag --mode acf
+//			clan: my clantag
+//			my clantag -> phrase
+//		2:
+//			forbidden: nick --mode bd
+//			clan: my clantag
+//			my clantag -> my phrasetag
+//		3:
+//			forbidden: nick
+//			clan: my clantag
+//			my clantag -> phrase
+//			because default mode = bcf, this equal clan --mode bcf
+//      4:
+//			forbidden: nick --mode bd -new NewClan
+//			clan: my clantag
+//			my clantag -> my NewClan
+//
+.ua
+.uа
+.ru
+.ro
+.ro
+.com
+.сom
+.cоm
+.соm
+.info
+.infо
+.su
+.net
+.nеt
+.lt

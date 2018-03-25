@@ -1,0 +1,50 @@
+//  nick --mode Flags --new Name
+//  --mode:
+//		default: bcf
+//      a - complete match
+//      b - partial match
+//      c - complete replacement
+//      d - partial replacement
+//      e - case sensitive
+//      f - case insensitive
+//
+//  --new:
+//      default: random nickname from file newnames.txt
+//
+//  Example:
+//		1:
+//			forbidden: my nickname --mode acf
+//			nickname: my nickname
+//			my nickaname -> phrase
+//		2:
+//			forbidden: nick --mode bd
+//			nickname: my nickname
+//			my nickaname -> my phrasename
+//		3:
+//			forbidden: nick
+//			nickname: my nickname
+//			my nickaname -> phrase
+//			because default mode = bcf, this equal nick --mode bcf
+//      4:
+//			forbidden: nick --mode bd --new NewName
+//			nickname: my nickname
+//			my nickaname -> my NewName
+//
+.ua
+.uа
+.ru
+.ro
+.ro
+.com
+.сom
+.cоm
+.соm
+.info
+.infо
+Your name
+You name
+Player
+.su
+.net
+.nеt
+.lt

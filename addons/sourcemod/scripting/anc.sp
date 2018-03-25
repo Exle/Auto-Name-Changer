@@ -1,46 +1,39 @@
+#include <sourcemod>
 #include <sdktools_functions>
-#include <chat>
 #include <anc_version>
-
-#undef REQUIRE_EXTENSIONS
-#include <cstrike>
 
 #pragma semicolon 1
 #pragma newdecls required
 
-char gen_dir[] = "cfg/sourcemod/anc/";
+#define GEN_DIR 		"cfg/sourcemod/anc/"
 
-char file_names[64]		= "names.ini";
-char file_clans[64]		= "clans.ini";
-char file_newnames[64]	= "newnames.ini";
-char file_newclans[64]	= "newclans.ini";
-char file_whitelist[64]	= "whitelist.ini";
-char adminflag[5]		= "z";
+#define ARRAY_CLANS 	0
+#define ARRAY_NAMES 	1
+#define ARRAY_NEWCLANS 	2
+#define ARRAY_NEWNAMES 	3
+#define ARRAY_WHITELIST 4
+#define ARRAY_MAX 		5
 
-int bansamount,
-	banstime;
+#define MODE_CM (1 << 0)	/**< Complete match			'a' */
+#define MODE_PM (1 << 1)	/**< Partial match			'b' */
+#define MODE_CR (1 << 2)	/**< Complete replacement	'c' */
+#define MODE_PR (1 << 3)	/**< Partial replacement	'd' */
+#define MODE_CS (1 << 4)	/**< Case sensitive			'e' */
+#define MODE_CI (1 << 5)	/**< Case insensitive		'f' */
 
-bool enabled,
-	 show_msg;
+int anc_bansamount,
+	anc_banstime,
+	anc_adminflags;
 
-ConVar	sm_anc_enabled,
-		sm_anc_filenames,
-		sm_anc_fileclans,
-		sm_anc_filenewnames,
-		sm_anc_filenewclans,
-		sm_anc_filewhitelist,
-		sm_anc_bansamount,
-		sm_anc_banstime,
-		sm_anc_aminflag,
-		sm_anc_showmsg;
+bool anc_enabled, anc_engine;
 
-ArrayList	names,
-			clans,
-			newnames,
-			newclans,
-			whitelist;
+ArrayList anc_arrays[ARRAY_MAX];
 
 int ban[MAXPLAYERS + 1];
+
+int lastflags;
+char newname[MAX_NAME_LENGTH],
+	match[MAX_NAME_LENGTH];
 
 public Plugin myinfo =
 {
@@ -48,161 +41,111 @@ public Plugin myinfo =
 	author		= "Exle",
 	description = "Replaces forbidden nicknames and clan tag",
 	version		= VERSION,
-	url			= "http://steamcommunity.com/id/ex1e/"
+	url			= "https://steamcommunity.com/profiles/76561198013509278"
 };
 
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
 {
-	MarkNativeAsOptional("SetClientName");
-	MarkNativeAsOptional("CS_GetClientClanTag");
-	MarkNativeAsOptional("CS_SetClientClanTag");
-	MarkNativeAsOptional("GetUserMessageType");
-
-	return APLRes_Success;
+	anc_engine = GetEngineVersion() == Engine_CSGO;
 }
 
 public void OnPluginStart()
 {
 	LoadTranslations("anc.phrases");
 
-	sm_anc_enabled		= CreateConVar("sm_anc_enabled",		"1",			"1 / 0 | Вкл / Выкл", _, true, 0.0, true, 1.0);
-	sm_anc_filenames	= CreateConVar("sm_anc_filenames",		file_names,		"Файл запрещенных ников / Для отключения оставьте пустым");
-	sm_anc_fileclans	= CreateConVar("sm_anc_fileclans",		file_clans,		"Файл запрещенных клан тегов / Для отключения оставьте пустым");
-	sm_anc_filenewnames	= CreateConVar("sm_anc_filenewnames",	file_newnames,	"Файл новых ников / Если больше одной строки, то будет выбрана случайная строка");
-	sm_anc_filenewclans	= CreateConVar("sm_anc_filenewclans",	file_newclans,	"Файл новых клан тегов / Если больше одной строки, то будет выбрана случайная строка");
-	sm_anc_filewhitelist= CreateConVar("sm_anc_filewhitelist",	file_whitelist,	"Файл белого списка / Для отключения оставьте пустым");
-
-	sm_anc_bansamount	= CreateConVar("sm_anc_bansamount",		"3",			"Количество изменений ника плагином до бана / Для отключения -1", _, true, -1.0);
-	sm_anc_banstime		= CreateConVar("sm_anc_banstime",		"30",			"Время бана", _, true, 0.0);
-	sm_anc_aminflag		= CreateConVar("sm_anc_adminflag",		adminflag,		"Флаг админов для иммунитета / Для отключения оставьте пустым");
-	sm_anc_showmsg		= CreateConVar("sm_anc_showmsg",		"1",			"Показывать сообщения плагина в чате (silent mode) / 1 / 0 | Вкл / Выкл", _, true, 0.0, true, 1.0);
-
-	sm_anc_filenames.AddChangeHook(OnConVarChanged);
-	sm_anc_fileclans.AddChangeHook(OnConVarChanged);
-	sm_anc_filenewnames.AddChangeHook(OnConVarChanged);
-	sm_anc_filenewclans.AddChangeHook(OnConVarChanged);
-	sm_anc_filewhitelist.AddChangeHook(OnConVarChanged);
-	sm_anc_bansamount.AddChangeHook(OnConVarChanged);
-	sm_anc_banstime.AddChangeHook(OnConVarChanged);
-	sm_anc_aminflag.AddChangeHook(OnConVarChanged);
-	sm_anc_showmsg.AddChangeHook(OnConVarChanged);
-
-	names		= new ArrayList(ByteCountToCells(MAX_NAME_LENGTH));
-	newnames	= new ArrayList(ByteCountToCells(MAX_NAME_LENGTH));
-	clans		= new ArrayList(ByteCountToCells(MAX_NAME_LENGTH));
-	newclans	= new ArrayList(ByteCountToCells(MAX_NAME_LENGTH));
-	whitelist	= new ArrayList(ByteCountToCells(MAX_NAME_LENGTH));
-
-	HookEvent("player_changename", player_changename, EventHookMode_Pre);
-
-	HookMsg();
-
-	for (int i = 1; i <= MaxClients; i++)
 	{
-		if (!IsClientInGame(i))
+		ConVar cvar;
+		(cvar = CreateConVar("sm_anc_enabled", "1", "0 - Disabled / 1 - Enabled", _, true, 0.0, true, 1.0)).AddChangeHook(OnChangeEnabled); OnChangeEnabled(cvar, NULL_STRING, NULL_STRING);
+
+		(cvar = CreateConVar("sm_anc_bansamount", "3", "Amount of changes nickname to ban / 0 - Disabled", _, true, 0.0)).AddChangeHook(OnChangeBansAmount); OnChangeBansAmount(cvar, NULL_STRING, NULL_STRING);
+		(cvar = CreateConVar("sm_anc_banstime", "30", "Ban time", _, true, 0.0)).AddChangeHook(OnChangeBansTime); OnChangeBansTime(cvar, NULL_STRING, NULL_STRING);
+		(cvar = CreateConVar("sm_anc_adminflags", "z", "Admin flags to exclude from scan")).AddChangeHook(OnChangeFlags);
 		{
-			continue;
+			char buffer[24]; cvar.GetString(buffer, 24); OnChangeFlags(cvar, NULL_STRING, buffer);
 		}
-
-		OnClientPutInServer(i);
 	}
 
-	AutoExecConfig(true, _, "sourcemod/anc");
+	for (int i; i < ARRAY_MAX; ++i)
+	{
+		anc_arrays[i] = new ArrayList(ByteCountToCells(MAX_NAME_LENGTH * 3));
+	}
+
+	HookEvent("player_changename", player_changename);
+
+	{
+		UserMsg UMsg = GetUserMessageId("SayText2");
+		if (UMsg != INVALID_MESSAGE_ID)
+		{
+			HookUserMessage(UMsg, SayText2, true);
+		}
+	}
+
+	for (int i = 1; i <= MaxClients; i++) if (IsClientInGame(i))
+	{
+		OnClientPostAdminCheck(i);
+	}
+
+	AutoExecConfig(_, _, "sourcemod/anc");
 }
 
-public void OnConfigsExecuted()
+public void OnChangeEnabled(ConVar convar, const char[] oldValue, const char[] newValue)
 {
-	enabled = sm_anc_enabled.BoolValue;
-	sm_anc_filenames.GetString(file_names, 64);
-	sm_anc_fileclans.GetString(file_clans, 64);
-	sm_anc_filenewnames.GetString(file_newnames, 64);
-	sm_anc_filenewclans.GetString(file_newclans, 64);
-	sm_anc_filewhitelist.GetString(file_whitelist, 64);
-	bansamount	= sm_anc_bansamount.IntValue;
-	banstime	= sm_anc_banstime.IntValue;
-	sm_anc_aminflag.GetString(adminflag, 5);
-	show_msg = sm_anc_showmsg.BoolValue;
+	anc_enabled = convar.BoolValue;
 }
 
-public void OnPluginEnd()
+public void OnChangeBansAmount(ConVar convar, const char[] oldValue, const char[] newValue)
 {
-	delete names;
-	delete clans;
-	delete newnames;
-	delete newclans;
-	delete whitelist;
+	anc_bansamount = convar.IntValue;
 }
 
-public void OnConVarChanged(ConVar convar, const char[] oldValue, const char[] newValue)
+public void OnChangeBansTime(ConVar convar, const char[] oldValue, const char[] newValue)
 {
-	if (convar == sm_anc_enabled)
-	{
-		enabled = convar.BoolValue;
-	}
-	else if (convar == sm_anc_filenames)
-	{
-		strCopy(file_names, 64, oldValue, newValue);
-		CreateNGetFromFile(names, file_names);
-	}
-	else if (convar == sm_anc_fileclans)
-	{
-		strCopy(file_clans, 64, oldValue, newValue);
-		CreateNGetFromFile(clans, file_clans);
-	}
-	else if (convar == sm_anc_filenewnames)
-	{
-		strCopy(file_newnames, 64, oldValue, newValue);
-		CreateNGetFromFile(newnames, file_newnames);
-	}
-	else if (convar == sm_anc_filenewclans)
-	{
-		strCopy(file_newclans, 64, oldValue, newValue);
-		CreateNGetFromFile(newclans, file_newclans);
-	}
-	else if (convar == sm_anc_filewhitelist)
-	{
-		strCopy(file_whitelist, 64, oldValue, newValue);
-		CreateNGetFromFile(whitelist, file_whitelist);
-	}
-	else if (convar == sm_anc_bansamount)
-	{
-		bansamount = convar.IntValue;
-	}
-	else if (convar == sm_anc_banstime)
-	{
-		banstime = convar.IntValue;
-	}
-	else if (convar == sm_anc_aminflag)
-	{
-		strcopy(adminflag, 5, newValue);
-	}
-	else if (convar == sm_anc_showmsg)
-	{
-		show_msg = convar.BoolValue;
-	}
+	anc_banstime = convar.IntValue;
+}
+
+public void OnChangeFlags(ConVar convar, const char[] oldValue, const char[] newValue)
+{
+	anc_adminflags = ReadFlagString(newValue);
 }
 
 public void OnMapStart()
 {
-	CreateDir(gen_dir);
+	char files[ARRAY_MAX][PLATFORM_MAX_PATH] = {
+		GEN_DIR ... "clans.txt",
+		GEN_DIR ... "names.txt",
+		GEN_DIR ... "newclans.txt",
+		GEN_DIR ... "newnames.txt",
+		GEN_DIR ... "whitelist.txt"
+	};
 
-	CreateNGetFromFile(names, file_names);
-	CreateNGetFromFile(clans, file_clans);
-	CreateNGetFromFile(newnames, file_newnames);
-	CreateNGetFromFile(newclans, file_newclans);
-	CreateNGetFromFile(whitelist, file_whitelist);
+	for (int i; i < ARRAY_MAX; ++i)
+	{
+		GetArrayFromFile(anc_arrays[i], files[i]);
+	}
 }
 
-public void OnClientPutInServer(int client)
+public Action OnClientCommandKeyValues(int client, KeyValues kv)
 {
-	if (!enabled || !file_names[0])
+	if (!anc_enabled || GetUserFlagBits(client) & anc_adminflags)
 	{
-		return;
+		return Plugin_Continue;
 	}
 
-	ban[client] = 0;
+	char buffer[MAX_NAME_LENGTH];
+	kv.GetString("tag", buffer, MAX_NAME_LENGTH);
+	if (buffer[0] && !FindInWhiteList(client, buffer) && FindInArray(ARRAY_CLANS, buffer) && GetNewName(buffer, buffer, MAX_NAME_LENGTH))
+	{
+		kv.SetString("tag", buffer);
+		PrintToChat(client, "%s\x01[\x04ANC\x01] %t\x04 %s", anc_engine ? " " : NULL_STRING, "Rename Clan", buffer);
+	}
 
-	if (IsFakeClient(client) || IsClientAdmin(client))
+	return Plugin_Continue;
+}
+
+public void OnClientPostAdminCheck(int client)
+{
+	ban[client] = 0;
+	if (!anc_enabled || IsFakeClient(client) || GetUserFlagBits(client) & anc_adminflags)
 	{
 		return;
 	}
@@ -210,112 +153,70 @@ public void OnClientPutInServer(int client)
 	char name[MAX_NAME_LENGTH];
 	GetClientName(client, name, MAX_NAME_LENGTH);
 
-	if (FindInArray(names, name) && !FindInArray(whitelist, name, false))
+	if (FindName(client, name) && GetNewName(name, name, MAX_NAME_LENGTH))
 	{
-		GetRandomStringFromArray(newnames, name, MAX_NAME_LENGTH);
-		ChangeClientName(client, name);
-	}
-}
-
-public void OnClientSettingsChanged(int client)
-{
-	if (GetFeatureStatus(FeatureType_Native, "CS_GetClientClanTag") != FeatureStatus_Available || !enabled || !file_clans[0] || !IsClientInGame(client) || IsFakeClient(client) || IsClientAdmin(client))
-	{
-		return;
-	}
-
-	char clan[MAX_NAME_LENGTH];
-
-	CS_GetClientClanTag(client, clan, sizeof(clan));
-
-	if (FindInArray(clans, clan) && !FindInArray(whitelist, clan, false))
-	{
-		if (!GetRandomStringFromArray(newclans, clan, MAX_NAME_LENGTH))
-		{
-			clan[0] = '\0';
-		}
-
-		ChangeClientClan(client, clan);
+		SetNewName(client, name);
+		Warn(client);
 	}
 }
 
 public Action player_changename(Event event, const char[] name, bool dontBroadcast)
 {
-	if (!enabled || !file_names[0])
-	{
-		return Plugin_Continue;
-	}
-
 	int client = GetClientOfUserId(event.GetInt("userid"));
 
-	if (IsFakeClient(client) || IsClientAdmin(client))
+	if (!anc_enabled || IsFakeClient(client) || GetUserFlagBits(client) & anc_adminflags)
 	{
 		return Plugin_Continue;
 	}
 
-	char newname[MAX_NAME_LENGTH], 
-		 oldname[MAX_NAME_LENGTH];
+	char client_name[MAX_NAME_LENGTH];
+	event.GetString("newname", client_name, MAX_NAME_LENGTH);
 
-	event.GetString("newname", newname, MAX_NAME_LENGTH);
-	event.GetString("oldname", oldname, MAX_NAME_LENGTH);
-
-	if (FindInArray(names, newname) && !FindInArray(whitelist, newname, false))
+	if (FindName(client, client_name) && GetNewName(client_name, client_name, MAX_NAME_LENGTH))
 	{
-		if (!GetRandomStringFromArray(newnames, newname, MAX_NAME_LENGTH))
-		{
-			strcopy(newname, MAX_NAME_LENGTH, oldname);
-		}
-
-		ChangeClientName(client, newname);
-
 		if (!dontBroadcast)
 		{
 			event.BroadcastDisabled = true;
 		}
 
-		return Plugin_Handled;
+		SetNewName(client, client_name);
+		Warn(client);
 	}
 
 	return Plugin_Continue;
 }
 
-public Action SayText2_Bf(UserMsg msg_id, BfRead msg, const int[] players, int playersNum, bool reliable, bool init)
+public Action SayText2(UserMsg msg_id, BfRead bf, const int[] players, int playersNum, bool reliable, bool init)
 {
-	return SayText2_Processing(msg);
-}
-
-public Action SayText2_Pb(UserMsg msg_id, Protobuf msg, const int[] players, int playersNum, bool reliable, bool init)
-{
-	return SayText2_Processing(_, msg);
-}
-
-Action SayText2_Processing(BfRead bf = null, Protobuf pb = null)
-{
-	if (!enabled || !file_names[0])
+	if (!anc_enabled)
 	{
 		return Plugin_Continue;
 	}
 
 	char message[255],
 		 oldname[MAX_NAME_LENGTH],
-		 newname[MAX_NAME_LENGTH];
+		 name[MAX_NAME_LENGTH];
 
-	if (bf != null)
+	int client;
+
+	if (GetUserMessageType() == UM_BitBuf)
 	{
-		bf.ReadByte();
+		client = bf.ReadByte();
 		bf.ReadByte();
 		bf.ReadString(message, 255);
 		bf.ReadString(oldname, MAX_NAME_LENGTH);
-		bf.ReadString(newname, MAX_NAME_LENGTH);
+		bf.ReadString(name, MAX_NAME_LENGTH);
 	}
 	else
 	{
+		Protobuf pb = UserMessageToProtobuf(view_as<Handle>(msg_id));
+		client = pb.ReadInt("ent_idx");
 		pb.ReadString("params", message, 255, 1);
 		pb.ReadString("params", oldname, MAX_NAME_LENGTH, 2);
-		pb.ReadString("params", newname, MAX_NAME_LENGTH, 3);
+		pb.ReadString("params", name, MAX_NAME_LENGTH, 3);
 	}
 
-	if (!IsClientAdmin(GetClientByName(newname)) && StrContains(message, "Name_Change") != -1 && (FindInArray(names, newname) && !FindInArray(whitelist, newname, false) || FindInArray(names, oldname) && !FindInArray(whitelist, oldname, false)))
+	if (!IsFakeClient(client) && !(GetUserFlagBits(client) & anc_adminflags) && StrContains(message, "Name_Change") != -1 && (FindName(client, name) || FindName(client, oldname)))
 	{
 		return Plugin_Handled;
 	}
@@ -323,145 +224,71 @@ Action SayText2_Processing(BfRead bf = null, Protobuf pb = null)
 	return Plugin_Continue;
 }
 
-void HookMsg()
+void Warn(int client)
 {
-	if (GetFeatureStatus(FeatureType_Native, "GetUserMessageType") == FeatureStatus_Available)
+	if (anc_bansamount == -1)
 	{
-		if (GetUserMessageType() == UM_BitBuf)
-		{
-			HookUserMessage(GetUserMessageId("SayText2"), SayText2_Bf, true);
-		}
-		else
-		{
-			HookUserMessage(GetUserMessageId("SayText2"), SayText2_Pb, true);
-		}
+		return;
+	}
+
+	if (++ban[client] < anc_bansamount)
+	{
+		PrintToChat(client, "%s\x01[\x04ANC\x01] %t", anc_engine ? " " : NULL_STRING, "For Ban");
+		PrintToChat(client, "%s\x01[\x04ANC\x01] %t\x04 %d\x01/\x04%d", anc_engine ? " " : NULL_STRING, "Warning", ban[client], anc_bansamount);
+	}
+	else if (ban[client] >= anc_bansamount)
+	{
+		ServerCommand("sm_ban #%d %d Bad nickname", GetClientUserId(client), anc_banstime);
 	}
 }
 
-void CreateNGetFromFile(ArrayList array, const char[] file_path)
+void SetNewName(int client, const char[] name)
 {
-	array.Clear();
-
-	if (file_path[0])
-	{
-		CreateFile("%s%s", gen_dir, file_path);
-		SetArrayFromFile(array, "%s%s", gen_dir, file_path);
-	}
+	SetClientInfo(client, "name", name);
+	PrintToChat(client, "%s\x01[\x04ANC\x01] %t\x04 %s", anc_engine ? " " : NULL_STRING, "Rename Name", name);
 }
 
-
-int GetClientByName(const char[] name)
+int GetNewName(const char[] name, char[] buffer, int maxlength)
 {
-	char tmp_name[MAX_NAME_LENGTH];
-	for (int i = 1; i <= MaxClients; i++)
+	int fl = GetFlags();
+	if (fl & MODE_PR)
 	{
-		if (!IsClientInGame(i))
-		{
-			continue;
-		}
-
-		GetClientName(i, tmp_name, MAX_NAME_LENGTH);
-
-		if (strcmp(name, tmp_name) == 0)
-		{
-			continue;
-		}
-
-		return i;
-	}
-
-	return -1;
-}
-
-bool IsClientAdmin(int client)
-{
-	if (!(1 <= client <= MaxClients) || !IsClientInGame(client))
-	{
-		return false;
-	}
-
-	AdminId admin = GetUserAdmin(client);
-	if (admin == INVALID_ADMIN_ID || !adminflag[0])
-	{
-		return false;
-	}
-
-	AdminFlag flag;
-
-	if (!FindFlagByChar(adminflag[0], flag) || !GetAdminFlag(admin, flag))
-	{
-		return false;
-	}
-
-	return true;
-}
-
-void ChangeClientName(int client, const char[] newname)
-{
-	BanOptions(client);
-
-	if (GetFeatureStatus(FeatureType_Native, "SetClientName") == FeatureStatus_Available)
-	{
-		SetClientName(client, newname);
+		strcopy(buffer, maxlength, name);
+		ReplaceString(buffer, maxlength, match, newname, view_as<bool>(fl & MODE_CS));
 	}
 	else
 	{
-		SetClientInfo(client, "name", newname);
+		strcopy(buffer, maxlength, newname);
 	}
 
-	if (show_msg)
-	{
-		Chat(client, "%c[ANC]%c %t", 3, 1, "Rename", 3, newname);
-	}
+	return strlen(buffer);
 }
 
-void ChangeClientClan(int client, const char[] newclan)
+bool FindName(int client, const char[] name)
 {
-	if (GetFeatureStatus(FeatureType_Native, "CS_SetClientClanTag") == FeatureStatus_Available)
+	if (!FindInWhiteList(client, name) && FindInArray(ARRAY_NAMES, name))
 	{
-		CS_SetClientClanTag(client, newclan);
-
-		if (show_msg)
-		{
-			Chat(client, "%c[ANC]%c %t", 3, 1, "Renameclan", 3, newclan);
-		}
+		return true;
 	}
+
+	return false;
 }
 
-void BanOptions(int client)
+bool FindInWhiteList(int client, const char[] name)
 {
-	if (bansamount == -1)
-	{
-		return;
-	}
-
-	if (++ban[client] != bansamount && show_msg)
-	{
-		Chat(client, "%c[ANC]%c %t", 3, 1, "For_Ban");
-		Chat(client, "%c[ANC]%c %t", 3, 1, "Warning", 3, ban[client], 1, 3, bansamount);
-	}
-	else if (ban[client] >= bansamount)
-	{
-		ServerCommand("sm_ban #%i %i \"Bad nickname\"", GetClientUserId(client), banstime);
-
-		return;
-	}
-}
-
-bool FindInArray(ArrayList array, const char[] buffer, bool substring = true)
-{
-	if (!array.Length)
-	{
-		return false;
-	}
-
 	char string[MAX_NAME_LENGTH];
-
-	for (int i = 0; i < array.Length; i++)
+	for (int i; i < 4; ++i)
 	{
-		array.GetString(i, string, MAX_NAME_LENGTH);
+		if (!i)
+		{
+			strcopy(string, MAX_NAME_LENGTH, name);
+		}
+		else
+		{
+			GetClientAuthId(client, view_as<AuthIdType>(i), string, MAX_NAME_LENGTH);
+		}
 
-		if (substring && StrContains(buffer, string, false) != -1 || !substring && strcmp(buffer, string, false) == 0)
+		if (FindInArray(ARRAY_WHITELIST, string))
 		{
 			return true;
 		}
@@ -470,140 +297,151 @@ bool FindInArray(ArrayList array, const char[] buffer, bool substring = true)
 	return false;
 }
 
-int GetRandomStringFromArray(ArrayList array, char[] buffer, int maxlen)
+bool FindInArray(int index, const char[] name, int flags = 0)
 {
-	if (!array.Length)
+	if (!(ARRAY_CLANS <= index < ARRAY_MAX))
 	{
-		return -1;
+		return false;
 	}
 
-	return array.GetString(GetRandomInt(0, array.Length - 1), buffer, maxlen);
+	char string[MAX_NAME_LENGTH * 3];
+	char buffer[16];
+
+	for (int i, length = anc_arrays[index].Length, fl; i < length; ++i)
+	{
+		anc_arrays[index].GetString(i, string, MAX_NAME_LENGTH * 3);
+
+		if (index != ARRAY_WHITELIST)
+		{
+			if (!GetParam(string, "new", newname, MAX_NAME_LENGTH))
+			{
+				if (!GetRandomStringFromArray(anc_arrays[index + 2], newname, MAX_NAME_LENGTH))
+				{
+					strcopy(newname, MAX_NAME_LENGTH, "undefined");
+				}
+			}
+
+			GetParam(string, "mode", buffer, 16);
+			lastflags = CheckBadFlags(ReadFlagString(buffer));
+
+			RemoveParams(string);
+
+			fl = !flags ? lastflags : flags;
+		}
+		else
+		{
+			fl = MODE_CM | MODE_CR | MODE_CI;
+		}
+
+		if ((fl & MODE_CM) && !strcmp(name, string, view_as<bool>(fl & MODE_CS)) || (fl & MODE_PM) && StrContains(name, string, view_as<bool>(fl & MODE_CS)) != -1)
+		{
+			if (index != ARRAY_WHITELIST)
+			{
+				strcopy(match, MAX_NAME_LENGTH, string);
+			}
+
+			return true;
+		}
+	}
+
+	return false;
 }
 
-void SetArrayFromFile(ArrayList array, char[] path_file, any ...)
+int GetParam(const char[] string, char[] param, char[] buffer, int maxlength)
 {
-	char buffer[PLATFORM_MAX_PATH];
-	VFormat(buffer, PLATFORM_MAX_PATH, path_file, 3);
-
-	if (!FileExists(buffer))
+	if (!param[0])
 	{
+		return 0;
+	}
+
+	char tmp[64] = 0x2d2d20;
+	StrCat(tmp, 64, param);
+
+	int idx[2];
+	if ((idx[0] = StrContains(string, tmp, false)) != -1)
+	{
+		strcopy(tmp, 64, string[(idx[0] += (idx[1] = strlen(tmp)) + (IsCharSpace(string[idx[0] + idx[1]]) ? 1 : 0))]);
+		TrimString(tmp);
+		if (tmp[0] == '\"' && (idx[1] = StrContains(tmp[1], "\"")) != -1 || tmp[0] == '\'' && (idx[1] = StrContains(tmp[1], "\'")) != -1)
+		{
+			tmp[idx[1] + 1] = 0;
+			TrimString(tmp[1]);
+			strcopy(buffer, maxlength, tmp[1]);
+		}
+		else if (SplitString(tmp, " ", buffer, maxlength) == -1)
+		{
+			BreakString(tmp, buffer, maxlength);
+		}
+
+		return strlen(buffer);
+	}
+
+	return 0;
+}
+
+void RemoveParams(char[] string)
+{
+	int idx;
+	if ((idx = StrContains(string, " --")) != -1)
+	{
+		string[idx] = 0;
+	}
+}
+
+int GetFlags()
+{
+	return lastflags ? lastflags : MODE_CM | MODE_PR | MODE_CI;
+}
+
+int CheckBadFlags(int fl)
+{
+	if (!(fl & MODE_CM) && !(fl & MODE_PM)) fl |= MODE_PM;
+	if (!(fl & MODE_CR) && !(fl & MODE_PR)) fl |= MODE_CR;
+	if (!(fl & MODE_CS) && !(fl & MODE_CI)) fl |= MODE_CI;
+
+	return fl;
+}
+
+int GetRandomStringFromArray(ArrayList array, char[] buffer, int maxlength)
+{
+	int size = array.Length;
+	if (!size)
+	{
+		return 0;
+	}
+
+	return array.GetString(GetRandomInt(0, size - 1), buffer, maxlength);
+}
+
+void GetArrayFromFile(ArrayList array, char[] file_path)
+{
+	array.Clear();
+
+	if (!file_path[0] || !FileExists(file_path))
+	{
+		LogError("File '%s' not found", file_path);
 		return;
 	}
 
-	File fFile = OpenFile(buffer, "r");
-
-	if (fFile == null)
+	File hFile = OpenFile(file_path, "r");
+	if (!hFile)
 	{
 		return;
 	}
 
 	int position;
-	while(!fFile.EndOfFile() && fFile.ReadLine(buffer, PLATFORM_MAX_PATH))
+	while(!hFile.EndOfFile() && hFile.ReadLine(file_path, PLATFORM_MAX_PATH))
 	{
-		if ((position = StrContains(buffer, "//")) != -1)
+		if ((position = StrContains(file_path, "//")) != -1)
 		{
-			buffer[position] = '\0';
+			file_path[position] = 0;
 		}
 
-		if ((position = StrContains(buffer, "#")) != -1)
+		if (TrimString(file_path) && file_path[0])
 		{
-			buffer[position] = '\0';
+			array.PushString(file_path);
 		}
-
-		if ((position = StrContains(buffer, ";")) != -1)
-		{
-			buffer[position] = '\0';
-		}
-		
-		TrimString(buffer);
-		
-		if (!buffer[0])
-		{
-			continue;
-		}
-
-		array.PushString(buffer);
 	}
 
-	delete fFile;
-}
-
-void strCopy(char[] file_path, int maxlen, const char[] oldValue, const char[] newValue)
-{
-	if (!newValue[0])
-	{
-		if (oldValue[0])
-		{
-			strcopy(file_path, maxlen, oldValue);
-		}
-
-		return;
-	}
-
-	strcopy(file_path, maxlen, newValue);
-
-	if (!oldValue[0])
-	{
-		return;
-	}
-	
-	char buffer[2][PLATFORM_MAX_PATH];
-
-	FormatEx(buffer[0], PLATFORM_MAX_PATH, "%s%s", gen_dir, oldValue);
-	FormatEx(buffer[1], PLATFORM_MAX_PATH, "%s%s", gen_dir, file_path);
-
-	FileCopy(buffer[0], buffer[1]);
-}
-
-void CreateDir(const char[] path_dir, any ...)
-{
-	char buffer[PLATFORM_MAX_PATH];
-	VFormat(buffer, PLATFORM_MAX_PATH, path_dir, 2);
-
-	if (!DirExists(buffer))
-	{
-		CreateDirectory(buffer, 755);
-	}
-}
-
-void CreateFile(const char[] path_file, any ...)
-{
-	char buffer[PLATFORM_MAX_PATH];
-	VFormat(buffer, PLATFORM_MAX_PATH, path_file, 2);
-
-	if (!FileExists(buffer))
-	{
-		File fFile = OpenFile(buffer, "w");
-		delete fFile;
-	}
-}
-
-stock bool FileCopy(const char[] source, const char[] destination)
-{
-	File file_source = OpenFile(source, "r");
-
-	if (file_source == null)
-	{
-		return false;
-	}
-
-	File file_destination = OpenFile(destination, "w");
-
-	if (file_destination == null)
-	{
-		delete file_source;
-		return false;
-	}
-
-	char buffer[MAX_NAME_LENGTH];
-
-	while (!file_source.EndOfFile() && file_source.ReadLine(buffer, MAX_NAME_LENGTH))
-	{
-		file_destination.WriteLine(buffer);
-	}
-
-	delete file_source;
-	delete file_destination;
-
-	return true;
+	delete hFile;
 }

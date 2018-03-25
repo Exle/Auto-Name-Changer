@@ -1,0 +1,12 @@
+//  WhiteList:
+//		Supports:
+//			NickName
+//			Steam ID
+//			Steam3
+//			Community ID
+//
+//	Example:
+//		Exle
+//		STEAM_0:0:26621775
+//		[U:1:53243550]
+//		76561198013509278
