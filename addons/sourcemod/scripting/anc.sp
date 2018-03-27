@@ -25,7 +25,9 @@ int anc_bansamount,
 	anc_banstime,
 	anc_adminflags;
 
-bool anc_enabled, anc_engine;
+bool anc_enabled,
+	anc_engine,
+	anc_pb;
 
 ArrayList anc_arrays[ARRAY_MAX];
 
@@ -47,23 +49,19 @@ public Plugin myinfo =
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
 {
 	anc_engine = GetEngineVersion() == Engine_CSGO;
+	anc_pb = GetUserMessageType() == UM_Protobuf;
 }
 
 public void OnPluginStart()
 {
 	LoadTranslations("anc.phrases");
 
-	{
-		ConVar cvar;
-		(cvar = CreateConVar("sm_anc_enabled", "1", "0 - Disabled / 1 - Enabled", _, true, 0.0, true, 1.0)).AddChangeHook(OnChangeEnabled); OnChangeEnabled(cvar, NULL_STRING, NULL_STRING);
-
-		(cvar = CreateConVar("sm_anc_bansamount", "3", "Amount of changes nickname to ban / 0 - Disabled", _, true, 0.0)).AddChangeHook(OnChangeBansAmount); OnChangeBansAmount(cvar, NULL_STRING, NULL_STRING);
-		(cvar = CreateConVar("sm_anc_banstime", "30", "Ban time", _, true, 0.0)).AddChangeHook(OnChangeBansTime); OnChangeBansTime(cvar, NULL_STRING, NULL_STRING);
-		(cvar = CreateConVar("sm_anc_adminflags", "z", "Admin flags to exclude from scan")).AddChangeHook(OnChangeFlags);
-		{
-			char buffer[24]; cvar.GetString(buffer, 24); OnChangeFlags(cvar, NULL_STRING, buffer);
-		}
-	}
+	ConVar cvar;
+	(cvar = CreateConVar("sm_anc_enabled", "1", "0 - Disabled / 1 - Enabled", _, true, 0.0, true, 1.0)).AddChangeHook(OnChangeEnabled); OnChangeEnabled(cvar, NULL_STRING, NULL_STRING);
+	(cvar = CreateConVar("sm_anc_bansamount", "3", "Amount of changes nickname to ban / 0 - Disabled", _, true, 0.0)).AddChangeHook(OnChangeBansAmount); OnChangeBansAmount(cvar, NULL_STRING, NULL_STRING);
+	(cvar = CreateConVar("sm_anc_banstime", "30", "Ban time", _, true, 0.0)).AddChangeHook(OnChangeBansTime); OnChangeBansTime(cvar, NULL_STRING, NULL_STRING);
+	(cvar = CreateConVar("sm_anc_adminflags", "z", "Admin flags to exclude from scan")).AddChangeHook(OnChangeFlags);
+	char buffer[24]; cvar.GetString(buffer, 24); OnChangeFlags(cvar, NULL_STRING, buffer);
 
 	for (int i; i < ARRAY_MAX; ++i)
 	{
@@ -72,12 +70,10 @@ public void OnPluginStart()
 
 	HookEvent("player_changename", player_changename);
 
+	UserMsg UMsg = GetUserMessageId("SayText2");
+	if (UMsg != INVALID_MESSAGE_ID)
 	{
-		UserMsg UMsg = GetUserMessageId("SayText2");
-		if (UMsg != INVALID_MESSAGE_ID)
-		{
-			HookUserMessage(UMsg, SayText2, true);
-		}
+		HookUserMessage(UMsg, SayText2, true);
 	}
 
 	for (int i = 1; i <= MaxClients; i++) if (IsClientInGame(i))
@@ -186,7 +182,7 @@ public Action player_changename(Event event, const char[] name, bool dontBroadca
 	return Plugin_Continue;
 }
 
-public Action SayText2(UserMsg msg_id, BfRead bf, const int[] players, int playersNum, bool reliable, bool init)
+public Action SayText2(UserMsg msg_id, Handle msg, const int[] players, int playersNum, bool reliable, bool init)
 {
 	if (!anc_enabled)
 	{
@@ -199,21 +195,22 @@ public Action SayText2(UserMsg msg_id, BfRead bf, const int[] players, int playe
 
 	int client;
 
-	if (GetUserMessageType() == UM_BitBuf)
+	if (anc_pb)
 	{
+		Protobuf pb = UserMessageToProtobuf(view_as<Handle>(msg));
+		client = pb.ReadInt("ent_idx");
+		pb.ReadString("msg_name", message, 255);
+		pb.ReadString("params", oldname, MAX_NAME_LENGTH, 0);
+		pb.ReadString("params", name, MAX_NAME_LENGTH, 1);
+	}
+	else
+	{
+		BfRead bf = UserMessageToBfRead(view_as<Handle>(msg));
 		client = bf.ReadByte();
 		bf.ReadByte();
 		bf.ReadString(message, 255);
 		bf.ReadString(oldname, MAX_NAME_LENGTH);
 		bf.ReadString(name, MAX_NAME_LENGTH);
-	}
-	else
-	{
-		Protobuf pb = UserMessageToProtobuf(view_as<Handle>(msg_id));
-		client = pb.ReadInt("ent_idx");
-		pb.ReadString("params", message, 255, 1);
-		pb.ReadString("params", oldname, MAX_NAME_LENGTH, 2);
-		pb.ReadString("params", name, MAX_NAME_LENGTH, 3);
 	}
 
 	if (!IsFakeClient(client) && !(GetUserFlagBits(client) & anc_adminflags) && StrContains(message, "Name_Change") != -1 && (FindName(client, name) || FindName(client, oldname)))
@@ -266,12 +263,7 @@ int GetNewName(const char[] name, char[] buffer, int maxlength)
 
 bool FindName(int client, const char[] name)
 {
-	if (!FindInWhiteList(client, name) && FindInArray(ARRAY_NAMES, name))
-	{
-		return true;
-	}
-
-	return false;
+	return !FindInWhiteList(client, name) && FindInArray(ARRAY_NAMES, name);
 }
 
 bool FindInWhiteList(int client, const char[] name)
@@ -299,11 +291,6 @@ bool FindInWhiteList(int client, const char[] name)
 
 bool FindInArray(int index, const char[] name, int flags = 0)
 {
-	if (!(ARRAY_CLANS <= index < ARRAY_MAX))
-	{
-		return false;
-	}
-
 	char string[MAX_NAME_LENGTH * 3];
 	char buffer[16];
 
@@ -349,11 +336,6 @@ bool FindInArray(int index, const char[] name, int flags = 0)
 
 int GetParam(const char[] string, char[] param, char[] buffer, int maxlength)
 {
-	if (!param[0])
-	{
-		return 0;
-	}
-
 	char tmp[64] = 0x2d2d20;
 	StrCat(tmp, 64, param);
 
@@ -417,15 +399,10 @@ void GetArrayFromFile(ArrayList array, char[] file_path)
 {
 	array.Clear();
 
-	if (!file_path[0] || !FileExists(file_path))
-	{
-		LogError("File '%s' not found", file_path);
-		return;
-	}
-
 	File hFile = OpenFile(file_path, "r");
 	if (!hFile)
 	{
+		LogError("Filed to open '%s'", file_path);
 		return;
 	}
 
