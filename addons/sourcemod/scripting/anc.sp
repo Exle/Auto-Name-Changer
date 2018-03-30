@@ -223,7 +223,7 @@ public Action SayText2(UserMsg msg_id, Handle msg, const int[] players, int play
 
 void Warn(int client)
 {
-	if (anc_bansamount == -1)
+	if (!anc_bansamount)
 	{
 		return;
 	}
