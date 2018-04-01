@@ -213,7 +213,11 @@ public Action SayText2(UserMsg msg_id, Handle msg, const int[] players, int play
 		bf.ReadString(name, MAX_NAME_LENGTH);
 	}
 
-	if (!IsFakeClient(client) && !(GetUserFlagBits(client) & anc_adminflags) && StrContains(message, "Name_Change") != -1 && (FindName(client, name) || FindName(client, oldname)))
+	if (client && !IsFakeClient(client) && GetUserFlagBits(client) & anc_adminflags)
+	{
+		return Plugin_Continue;
+	}
+	else if (StrContains(message, "Name_Change") != -1 && (FindName(client, name) || FindName(client, oldname)))
 	{
 		return Plugin_Handled;
 	}
@@ -275,6 +279,10 @@ bool FindInWhiteList(int client, const char[] name)
 		{
 			strcopy(string, MAX_NAME_LENGTH, name);
 		}
+		else if (!client)
+		{
+			break;
+		}
 		else
 		{
 			GetClientAuthId(client, view_as<AuthIdType>(i), string, MAX_NAME_LENGTH);
@@ -300,12 +308,9 @@ bool FindInArray(int index, const char[] name, int flags = 0)
 
 		if (index != ARRAY_WHITELIST)
 		{
-			if (!GetParam(string, "new", newname, MAX_NAME_LENGTH))
+			if (!GetParam(string, "new", newname, MAX_NAME_LENGTH) && !GetRandomStringFromArray(anc_arrays[index + 2], newname, MAX_NAME_LENGTH))
 			{
-				if (!GetRandomStringFromArray(anc_arrays[index + 2], newname, MAX_NAME_LENGTH))
-				{
-					strcopy(newname, MAX_NAME_LENGTH, "undefined");
-				}
+				strcopy(newname, MAX_NAME_LENGTH, "undefined");
 			}
 
 			GetParam(string, "mode", buffer, 16);
